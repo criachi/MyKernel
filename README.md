@@ -13,6 +13,7 @@ My shell program which supports 5 basic commands and seeks to emulate bash behav
 To compile the application using gcc:
 
 gcc -c shell.c interpreter.c shellmemory.c
+
 gcc -o mysh shell.o interpreter.o shellmemory.o 
 
 To run the shell program: ./mysh (from the command line) 
