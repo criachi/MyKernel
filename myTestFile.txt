@@ -1,0 +1,14 @@
+help
+set x 10
+print x
+set y comp310
+set z 
+set z Malibu US
+print z
+print x hehe
+set x 5
+print x
+run
+run what.txt
+run myTestFile.txt
+quit
