@@ -1,6 +1,6 @@
-#ifndef INTERP_H
-#define INTERP_H
+#ifndef INTERPRETER_H
+#define INTERPRETER_H
 
-int interpreter(char *words[], int numWords);
+int interpreter(char *raw_input);
 
 #endif

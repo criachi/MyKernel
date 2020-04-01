@@ -1,7 +1,10 @@
-#ifndef SHELL_MEM_H
-#define SHELL_MEM_H
+#ifndef SHELLMEMORY_H
+#define SHELLMEMORY_H
 
-int setVarValue(char* varName, char* varValue);
-int printVarValue(char* varName);
+int shell_memory_set(const char *key, const char *value);
+const char *shell_memory_get(const char *key);
+
+void shell_memory_initialize();
+void shell_memory_destroy();
 
 #endif

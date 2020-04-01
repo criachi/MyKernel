@@ -1,99 +1,275 @@
+#include "interpreter.h"
+#include "shellmemory.h"
+#include "kernel.h"
+#include "memorymanager.h"
+#include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <stdio.h>
-#include <stdlib.h> // for exit()
-#include "shellmemory.h"
-#include "shell.h"
-// assumes format of command line is gonna be command arguments
-// assumes words[0] is command
-int errorCode = 0;
-int wordNumber = 0;
-int runningScript = 0;
-int quit() {
-	if(runningScript == 1) {	// so that we only exit the script if it is called by "run script"
-		printf("%s\n", "Bye!");
-		return 0;
-	}
-	printf("%s\n", "Bye!");
-	exit(0);
+
+char **tokenize(char *str)
+{
+    size_t num_tokens = 1;
+    int flag = 0;
+    for (size_t i = 0; i < strlen(str); i++)
+    {
+        if (flag == 0 && str[i] == ' ')
+        {
+            num_tokens = num_tokens + 1;
+            flag = 1;
+        }
+        if (str[i] != ' ')
+        {
+            flag = 0;
+        }
+    }
+    char **ret_arr =
+        (char **)calloc((num_tokens + 1), sizeof(char *)* (num_tokens + 1)); 
+
+    if (ret_arr == NULL)
+    {
+        perror("calloc");
+        return NULL;
+    }
+    flag = 0;
+    int ignore_flag = 0;
+    char *modified_str = (char *)str;
+    size_t counter = 0;
+    const size_t length_str = strlen(str);
+    for (size_t i = 0; i < length_str; i++)
+    {
+        if (modified_str[i] == '\n' || modified_str[i] == '\r')
+            modified_str[i] = ' ';
+        if (modified_str[i] == '"')
+        {
+            ignore_flag = ignore_flag ^ 0x1;
+        }
+        if (flag == 0 && modified_str[i] != ' ')
+        {
+            ret_arr[counter] = &(modified_str[i]);
+            counter = counter + 1;
+            flag = 1;
+        }
+        if (modified_str[i] == '\\' && modified_str[i + 1] == ' ')
+        {
+            i++;
+            continue;
+        }
+        if (flag == 1 && modified_str[i] == ' ' && ignore_flag == 0)
+        {
+            modified_str[i] = '\0';
+            flag = 0;
+            continue;
+        }
+    }
+    ret_arr[counter] = NULL;
+
+    for (size_t i = 0; i < counter; ++i)
+    {
+        if (ret_arr[i][0] == '\"' &&
+            ret_arr[i][strlen(ret_arr[i] - 1)] == '\"')
+        {
+            ret_arr[i][strlen(ret_arr[i]) - 1] = '\0';
+            ret_arr[i] = ret_arr[i] + 1;
+        }
+    }
+
+    return ret_arr;
 }
 
-int help() {
-	if(wordNumber != 1) {
-		return 1;
-	}
-	int newlineCounter = 0;
-	FILE *fptr;
-	const char filename[] = "command_info.txt";
-	char c;
-	fptr = fopen(filename, "r");
-	if (fptr == NULL) {
-		return -1;	// triggers error msg cld not display commands
-	}
+int in_file_flag = 0;
+int in_exec_flag = 0;
+int interpreter(char *raw_input);
 
-	c = fgetc(fptr);
-	while(c != EOF) { // c!=EOF
-		printf("%c", c);
-		c = fgetc(fptr);
-	}
-
-	fclose(fptr);
-	return 0;
+int help()
+{
+    printf(""
+           "COMMAND         DESCRIPTION\n"
+           "help            Displays all the commands\n"
+           "quit            Exits / terminates the shell with \"Bye!\"\n"
+           "set VAR STRING  Assigns a value to shell memory\n"
+           "print VAR       Displays the STRING assigned to VAR\n"
+           "run SCRIPT.TXT  Executes the file SCRIPT.TXT\n"
+           "exec p1 p2 p3   Executes concurrent programs\n");
+    return 0;
 }
 
-int setVar(char* words[]) {
-	if(wordNumber != 3) {
-		return 3;
-	}
-//	printf("setting");
-	char* var = words[1];
-	char* value = words[2];
-
-	return setVarValue(var, value);
+int quit()
+{
+    printf("Bye!\n");
+    if (in_file_flag == 0 && in_exec_flag == 0)
+    {
+        shell_memory_destroy();
+        exit(0);
+    } 
+    return 0;
 }
 
-int printVar(char* words[]) {
-	if(wordNumber != 2) {
-		return 2;
-	}
-//	printf("printing");
-	char* var = words[1];
-	return printVarValue(var);
+static int run(const char *path)
+{
+    FILE *file = fopen(path, "r");
+    if (file == NULL)
+    {
+        printf("Script not found.\n");
+        return 1;
+    }
+    int enter_flag_status = in_file_flag;
+    in_file_flag = 1;
+    while (!feof(file))
+    {
+        char *line = NULL;
+        size_t linecap = 0;
+        getline(&line, &linecap, file);
+
+        int status = interpreter(line);
+        free(line);
+        if (status != 0) 
+        {
+            break;
+            return status;
+        }
+    }
+    fclose(file);
+    in_file_flag = enter_flag_status;
+    return 0;
 }
 
-int runScript(char* words[]) {
-	if(wordNumber != 2) {
-		return 2;
-	}
-	//char* line = NULL; // was char line[1000];
-	char line[1000];
-	FILE *p = fopen(words[1], "r"); // the program is in a file
-	if(p == NULL) {
-		return -3; // triggers error message: script not found
-	}
-	runningScript = 1;
-	fgets(line, 1000, p);
-	while(!feof(p)) {
-//		printf("still reading file");
-		errorCode = parse(line); // calls interpreter()
-		if(errorCode != 0) {
-			fclose(p);
-			runningScript = 0;
-			return errorCode;
-		}
-		fgets(line, 1000, p);
-	}
-	fclose(p);
-	runningScript = 0;
-	return errorCode;
+int set(const char *key, const char *value)
+{
+    int status = shell_memory_set(key, value);
+    if (status != 0)
+        printf("set: Unable to set shell memory.\n");
+    return status;
 }
-int interpreter(char* words[], int numWords) { // again not specifying the size of the words array so tht the fn can accept several sizes
-	wordNumber = numWords;
-	if (!strcmp(words[0], "quit")) errorCode = quit();
-	else if (!strcmp(words[0], "help")) errorCode = help();
-	else if (!strcmp(words[0], "set")) errorCode = setVar(words);
-	else if (!strcmp(words[0], "print")) errorCode = printVar(words);
-	else if (!strcmp(words[0], "run")) errorCode = runScript(words);
-	else if (!strcmp(words[0], "\0")) errorCode = 0; // case of no command passed, my parsing code replaces the line feed (LF, newline) character by '\0' so do nothing; simply reprint prompt
-	else errorCode = 5; // this shld trigger a display of unknown command
-	return errorCode;
+
+int print(const char *key)
+{
+    const char *value = shell_memory_get(key);
+    if (value == NULL)
+    {
+        printf("print: Undefined value.\n");
+        return 1;
+    }
+    printf("%s\n", value);
+    return 0;
+}
+
+int exec(char **tokens)
+{ 
+    in_exec_flag = 1;
+    int numScripts = 1;
+    if (tokens[2] != NULL)
+        numScripts++;
+    if (tokens[3] != NULL)
+        numScripts++;
+        
+    for (int i = 1; i <= numScripts; i++)
+    {
+        FILE *file = fopen(tokens[i], "r");
+        if (file == NULL)
+        {
+            printf("Error: %s could not be found!\n", tokens[i]);
+            return 1;
+        }
+        int returnToken = launcher(file);
+        if (returnToken == 1) 
+        {
+            return 1;
+        };
+    }
+
+    scheduler();
+    in_exec_flag = 0;
+    return 0;
+}
+
+int interpreter(char *raw_input)
+{
+    char **tokens = tokenize(raw_input);
+    if (tokens[0] == NULL)
+        return 0; // empty command
+
+    if (strcmp(tokens[0], "help") == 0)
+    {
+        if (tokens[1] != NULL)
+        {
+            printf("help: Malformed command\n");
+            free(tokens);
+            return 1;
+        }
+        free(tokens);
+        return help();
+    }
+    if (strcmp(tokens[0], "quit") == 0)
+    {
+        if (tokens[1] != NULL)
+        {
+            printf("quit: Malformed command\n");
+            free(tokens);
+            return 1;
+        }
+        if (in_file_flag == 0 && in_exec_flag == 0)
+        {
+            free(raw_input);
+        }
+
+        //free(raw_input); 
+        free(tokens);
+        return quit();
+    };
+
+    if (strcmp(tokens[0], "set") == 0)
+    {
+        if (!(tokens[1] != NULL && tokens[2] != NULL && tokens[3] == NULL))
+        {
+            printf("set: Malformed command\n");
+            free(tokens);
+            return 1;
+        }
+        int status = set(tokens[1], tokens[2]);
+        free(tokens);
+        return status;
+    }
+
+    if (strcmp(tokens[0], "print") == 0)
+    {
+        if (!(tokens[1] != NULL && tokens[2] == NULL))
+        {
+            printf("print: Malformed command\n");
+            free(tokens);
+            return 1;
+        }
+        int status = print(tokens[1]);
+        free(tokens);
+        return status;
+    }
+
+    if (strcmp(tokens[0], "run") == 0)
+    {
+        if (!(tokens[1] != NULL && tokens[2] == NULL))
+        {
+            printf("run: Malformed command\n");
+            free(tokens);
+            return 1;
+        }
+        int result = run(tokens[1]);
+        free(tokens);
+        return result;
+    }
+
+    if (strcmp(tokens[0], "exec") == 0)
+    {
+        if (tokens[1] == NULL || (tokens[2] != NULL && tokens[3] != NULL && tokens[4] != NULL)) // if it has no arguments or more than 3 arguments
+        {
+            printf("exec: Malformed command\n");
+            free(tokens);
+            return 1;
+        }
+        int result = exec(tokens);
+        free(tokens);
+        return result;
+    }
+    printf("Unrecognized command \"%s\"\n", tokens[0]);
+    free(tokens);
+    return 1;
 }
