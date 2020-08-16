@@ -1,4 +1,4 @@
-# MyKernel
+# MyOS
 This program is meant to simulate an OS with a command-line interface that allows you to issue 6 basic commands. The simulation includes a kernel (and scheduler), loader, a single-core cpu, ram, and memory management using paging.
 
 ## How to Run
